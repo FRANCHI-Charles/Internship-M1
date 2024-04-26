@@ -1,0 +1,11 @@
+hugging face : séquence de tailles variables
+système de l'attention
+NLP
+Transformers
+Fast Fourier Transform (FFT)
+fashion MNIST
+(BERT (google) language modèle)
+ESN (RNN)
+
+obj : comprendre le papier et utiliser le critère de beta saturation pour mettre en pratique
+	créer un réseau de neurone pour qu'il ait ces caractéristiques sans y aller trop vite pour éviter le vanishing gradient
