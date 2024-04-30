@@ -152,7 +152,7 @@ class DFA:
             nbrelements = np.sum(nobinselements, axis=1).reshape(-1,1)
             self._probas = nobinselements / nbrelements
         else:
-            raise ValueError("`probas` has to be a 2D numpy array, 'equal' or None.")
+            raise TypeError("`probas` has to be a 2D numpy array, 'equal' or None.")
 
     @property
     def letters(self):
@@ -171,7 +171,7 @@ class DFA:
                 raise ValueError("Not enough symbols in `letters`.")
             self._letters = string.ascii_lowercase[:self.transition.shape[1]]
         else:
-            raise ValueError("`letters` have to be str or None.")
+            raise TypeError("`letters` have to be str or None.")
 
 
         
@@ -353,6 +353,32 @@ class DFA:
         labels = list(np.delete(np.array(labels), to_remove))
 
         return words, labels
+    
+
+    def word_to_matrix(self, word, length:int=None) -> list[list[int]]:
+        """
+        One-hot encoding the word in the automaton letters.
+
+        Parameters
+        ----------
+        word : str
+            Automaton word to encode.
+
+        length : int or None
+            If set, the length of the return list will be this parameters (all adding list are 0 lists).
+
+        Returns
+        -------
+        list of lists of int
+            One-hot encoded word.
+        """
+        if isinstance(word, str):
+            if length is None:
+                return [[1 if symbol == letter else 0 for symbol in self.letters] for letter in word]
+            else:
+                return [[1 if symbol == letter else 0 for symbol in self.letters] for letter in word] + [[0 for _ in self.letters] for _ in range(length - len(word))]
+        else:
+            raise TypeError("`word` should be a string.")
 
 
 
