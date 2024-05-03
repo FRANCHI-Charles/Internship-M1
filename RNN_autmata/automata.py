@@ -1,7 +1,7 @@
 import numpy as np
 import string
 from torch.utils.data import Dataset
-from torch import tensor
+from torch import tensor, float32
 from warnings import warn
 
 
@@ -299,6 +299,10 @@ class DFA:
             List of words class (1 accepted, 0 rejected)
         """
         rng = self._rng(random_state)
+
+        if prop <0 or prop > 1:
+            raise ValueError("`prop` has to be a float in [0,1].") 
+
         if max_try is None:
             max_try = int(length/(1-prop)) * 10
         elif max_try < length:
@@ -401,7 +405,7 @@ class TorchData(Dataset):
             coded = [[1 if symbol == letter else 0 for symbol in automaton.letters] for letter in word]
             lengths.append(len(word))
             coded += [[0 for _ in automaton.letters] for _ in range(maxlength - len(coded))]
-            datas.append(tensor(coded))
+            datas.append(tensor(coded, dtype=float32))
         return datas, lengths
 
     def _maxlength(self, wordslist):
