@@ -5,6 +5,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 print("Loading TensorFlow...")
 import tensorflow as tf
 import keras
+# for kfac : tensorflow 2.15.1 cp311
 
 from tfnameutils import N_LETTERS, load_data, train_test_split, preprocessing
 
