@@ -7,7 +7,6 @@ from torch.optim import Adam
 
 class STATS():
     def __init__(self,lis_stats):
-        super(STATS,self).__init__()
         ### this class is designed to store any kind of statistics typed as lists. It takes as input a list of strings
         self.names = lis_stats
         self.dict  = {} 

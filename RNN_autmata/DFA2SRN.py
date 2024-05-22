@@ -1,43 +1,45 @@
 import numpy as np
 import torch
 
-path = "/home/volodimir/Bureau/ForLang/data/machines/"
-name = "04.04.Zp.2.1.0.att"
+def machine_process(file_path):
+    """This function is specificaly defined for Jef Heinz & Dakotah Lambert DFA encoding.
 
-def machine_proces(path,name):
-    """This function is specificaly defined for Jef Heinz & Dakotah Lambert DFA encoding
+    We suppose the transitions are well defined, that is to say for every states and letters we know what to do.
     """
     transitions = []
     finals = []
     alphabet = []
     num_stats = 0
-    with open(path+name) as file:
-        length = len(file.readlines())
-    with open(path+name) as file:
-        for j in range(length):
-            line = file.readline()
+    with open(file_path) as file:
+        for line in file.readlines():
             splited_line = line.split()
             if len(splited_line)==4:
+                splited_line[0] = int(splited_line[0])
+                splited_line[1] = int(splited_line[1])
                 transitions.append(splited_line)      ### creating the transition function 1st step
                 alphabet.append(splited_line[2])      ### creating the alphabet 1st step
-                if int(splited_line[0])>num_stats:    ### counting the states
-                    num_stats = int(splited_line[0])
+                num_stats = max(num_stats, splited_line[0], splited_line[1])
             else:
                 finals.append(int(splited_line[0]))
     num_stats +=1
-    alphabet_size = len(transitions)//(num_stats) ## we can do that because we deal with a DFA
-    trans_mat = np.zeros((alphabet_size, num_stats)) 
+    alphabet = "".join(sorted(set(alphabet)))
+    trans_mat = np.ones((len(alphabet), num_stats)) * (-1)
     decod_mat = np.zeros(num_stats)
-    alphabet = sorted(list(set(alphabet)))
     for elem in transitions: ### creating the transition function last step
-        lettre = elem[2]
-        index  = alphabet.index(lettre) 
-        trans_mat[index,int(elem[0])] = int(elem[1])
+        letter = elem[2]
+        index  = alphabet.index(letter) 
+        trans_mat[index,elem[0]] = elem[1]
+
+    if np.any(transitions == -1):
+        raise ValueError("It misses transitions in the .att file.")
     
     for elem in finals:
         decod_mat[elem] = 1
             
     return (trans_mat, decod_mat)
+
+DATA_PATH = "./data/Small/"
+
 
 
 # (trans_mat, decod_mat, alphabet) = machine_proces(path,name)
@@ -72,8 +74,6 @@ def dfa2srn(trans_mat, decod_mat, returnJ:bool = False, verbose:bool = False):
     # The encoder
     for j in range(Q):
         for k in range(S):
-            if verbose:
-                print(k+j*Q)
             U[k+j*S,k] = 2
     
     for s in range(Q):
@@ -91,9 +91,6 @@ def dfa2srn(trans_mat, decod_mat, returnJ:bool = False, verbose:bool = False):
             V[k*S:(k+1)*S] = -1
         
         # print(V[k*S:(k+1)*S-1])
-        if verbose:
-            print(k*S)
-            print((k+1)*S-1)
 
     ### Packing all the tensors 
     # target = [J*U, U_b, -J*W, W_b, J*V, V_c]

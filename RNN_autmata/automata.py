@@ -411,8 +411,7 @@ class TorchData(Dataset):
     def _maxlength(self, wordslist):
         maxlength = 0
         for i in wordslist:
-            if len(i) > maxlength:
-                maxlength = len(i)
+            maxlength = max(maxlength, len(i))
         return maxlength
 
     
