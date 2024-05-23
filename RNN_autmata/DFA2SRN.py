@@ -107,3 +107,24 @@ def dfa2srn(trans_mat, decod_mat, returnJ:bool = False, verbose:bool = False):
 # T_m, D_m = machine_proces(path,name)
 
 # print(dfa2srn(T_m, D_m))
+
+def sigmoid_to_tanh(target:list[torch.Tensor]):
+    target = target.copy()
+    lenW = target[2].shape[0]
+    if lenW == 0:
+        raise ValueError("Inconsistant W in `target`.")
+    elif lenW ==2:
+        raise ValueError("Can't use tanh for |states|*|\Sigma| =2.")
+    elif lenW ==1:
+        return target
+    else:
+        changebase = torch.zeros((lenW, lenW))
+        for i in range(lenW):
+            changebase[i,i] = 1 - 1/(lenW - 2)
+            for j in range(i+1, lenW):
+                changebase[i,j] = changebase[j,i] = - 1/(lenW - 2)
+        changebase *= 0.5
+
+        target[2] @= changebase
+        target[4] @= changebase
+        return target

@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import numpy as np
+from torch.utils.data import Dataset
 from DFA2SRN import machine_process
 from automata import DFA, TorchData
 
@@ -180,3 +182,40 @@ def data_automata_loading(att_path:str, data_path:str, name:str, data_ext:list =
         datas[e] = TorchData(automaton)
 
     return (datas, automaton) if return_automata else datas
+
+
+
+def stochastic(dataset:Dataset, mini_batch:int):
+    batch_index = np.random.choice(range(len(dataset)), mini_batch)
+    data = list()
+    lengths = list()
+    labels = list()
+    for elem in batch_index:
+        data.append(dataset[elem][0])
+        lengths.append(dataset[elem][1])
+        labels.append(dataset[elem][2])
+        
+    return torch.stack(data), lengths, labels
+
+
+### Compute stats
+
+def stats(net:nn.Module,target,lr):
+    "Returns the L2 and the L_\infty norm of the gradient and the distance to target."
+    norm_2_acc = 0
+    norm_inf_acc = []
+    target_dist = 0
+    k=0
+    for parameters in net.parameters():
+        gr = parameters.grad
+        parameters = parameters.detach() 
+        target_dist += ((torch.linalg.norm(parameters.flatten()-target[k].flatten())).item())**2
+        parameters -= lr*(gr) # lr*(target[k]) + (1-lr)*(initial[k])
+        parameters.requires_grad = True
+        norm_2_acc += (torch.linalg.norm(gr.flatten(),ord=2).item())**2
+        norm_inf_acc.append(torch.linalg.norm(gr.flatten(),ord=float('inf')).item())
+        k+=1
+    target_dist = target_dist**(0.5)
+    norm_2 = lr*norm_2_acc**(0.5)
+    norm_inf = max(norm_inf_acc)
+    return (norm_2,norm_inf,target_dist)

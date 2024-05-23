@@ -1,7 +1,8 @@
 import numpy as np
 import string
+import torch
+import torch.nn as nn
 from torch.utils.data import Dataset
-from torch import tensor, float32
 from warnings import warn
 
 
@@ -405,7 +406,7 @@ class TorchData(Dataset):
             coded = [[1 if symbol == letter else 0 for symbol in automaton.letters] for letter in word]
             lengths.append(len(word))
             coded += [[0 for _ in automaton.letters] for _ in range(maxlength - len(coded))]
-            datas.append(tensor(coded, dtype=float32))
+            datas.append(torch.tensor(coded, dtype=torch.float32))
         return datas, lengths
 
     def _maxlength(self, wordslist):
@@ -420,6 +421,44 @@ class TorchData(Dataset):
     
     def __len__(self) -> int:
         return len(self.labels)
+    
+
+
+class AutomataRNN(nn.Module):
+
+    def __init__(self, automaton:DFA, device) -> None:
+        super().__init__()
+        self.automaton = automaton
+        self.transshape = automaton.transition.shape
+        self.hidden_size = self.transshape[0]*self.transshape[1]
+        self.device = device
+
+        self.rnn = nn.RNN(self.transshape[1], self.hidden_size, num_layers=1, batch_first=True, device=device, bias=False)
+        self.toclass = nn.Linear(self.hidden_size, 1, device=device, bias=False)
+        self.labels = nn.Sigmoid()
+
+    def absinit(self):
+        "Force the sign of the initial parameters to be in the desired shape."
+        parameters = {"rnn.weight_ih_l0" : abs(self.state_dict()["rnn.weight_ih_l0"]),
+                      "rnn.weight_hh_l0" : -abs(self.state_dict()["rnn.weight_hh_l0"]),
+                      "toclass.weight" :  abs(self.state_dict()["toclass.weight"])}
+        
+        self.load_state_dict(parameters)    
+
+    def forward(self, x, truelen):
+        "`truelen` is a list of the real length of the sequence : that way we can recover the good prediction along the rnn"
+        h0 = torch.zeros(1, x.shape[0], self.hidden_size).to(self.device)
+        h0[:,:,0] = 1
+        out, _ = self.rnn(x.to(self.device), h0)
+        out = torch.stack([out[i, truelen[i] -1, :] for i in range(out.shape[0])]) #extract only the require prediction y for each batch
+        return self.labels(self.toclass(out))
+        
+    def predict(self, x, truelen):
+        return torch.argmax(self(x, truelen), dim = 1)
+    
+    def strpredict(self, word:str):
+        tensor = torch.tensor(self.automaton.word_to_matrix(word))
+        return self.predict(tensor, len(word))
 
 
 if __name__ == "__main__":

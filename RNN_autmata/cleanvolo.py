@@ -1,4 +1,7 @@
 import torch
+import torch.nn as nn
+import numpy as np
+from pandas import Series
 from DFA2SRN import dfa2srn
 import RNN_autmata.utils as lib
 
@@ -14,76 +17,14 @@ DATA_PATH = "./data/Small/"
 names, ext = lib.lang_names(NAMES_PATH)
 
 
-
-
-
-### model training statistics related functions 
-
-def stats(net,target,lr):
-    ### this function returns the L2 and the L_\infty norm of the gradient
-    norm_2_acc = 0
-    norm_inf_acc = []
-    target_dist = 0
-    k=0
-    for parameters in net.parameters():
-        gr = parameters.grad
-        parameters = parameters.detach() 
-        target_dist += ((torch.linalg.norm(parameters.flatten()-target[k].flatten())).item())**2
-        parameters -= lr*(gr) # lr*(target[k]) + (1-lr)*(initial[k])
-        parameters.requires_grad = True
-        norm_2_acc += (torch.linalg.norm(gr.flatten(),ord=2).item())**2
-        norm_inf_acc.append(torch.linalg.norm(gr.flatten(),ord=float('inf')).item())
-        k+=1
-    target_dist = target_dist**(0.5)
-    norm_2 = lr*norm_2_acc**(0.5)
-    norm_inf = max(norm_inf_acc)
-    return (norm_2,norm_inf,target_dist)
-
-def target_distance(net, target):
-    target_dist = 0
-    k=0
-    for parameters in net.parameters():
-        target_dist += ((torch.linalg.norm(parameters.flatten()-target[k].flatten())).item())**2
-        k+=1
-    target_dist = target_dist**(0.5)
-    return target_dist
-
-def rolling_avg(arr,window_size):
-    
-    # Convert array of integers to pandas series
-    numbers_series = pd.Series(arr)
-    
-    # Get the window of series of
-    # observations till the current time
-    windows = numbers_series.expanding()
-    
-    # Create a series of moving averages of each window
-    moving_averages = windows.mean()
-    
-    # Convert pandas series back to list
-    moving_averages_list = moving_averages.tolist()
-    return np.array(moving_averages_list)
-
-
 #### the training function 
 
-
-def train_stats(net,target, stats_data, optimizer, mini_batch, train_loader, num_epochs, lr, dtype, device):
+def train_stats(net,target, stats_data, optimizer, lossfunction, mini_batch, train_loader, num_epochs, lr, dtype, device):
     net.to(dtype=dtype,device=device)
-
-    
-    #train
-    count = 0
     
     for _ in range(num_epochs):
         ## creating a batch
-        batch_index = random.sample(list(range(len(train_loader[0]))),mini_batch)
-        batch, labels = [], []
-        for elem in batch_index:
-            batch.append(train_loader[0][elem])
-            labels.append(train_loader[1][elem])
-        batch  = torch.tensor(batch)
-        labels = torch.tensor(labels)
+        
             
         # move data to proper dtype and device
         # images, labels = train_loader[i]
@@ -94,27 +35,26 @@ def train_stats(net,target, stats_data, optimizer, mini_batch, train_loader, num
         # Forward pass
         
         outputs = net(batch).squeeze()
-        loss = (-1)*( labels*torch.log(outputs+10**(-7)) + (1-labels)*torch.log((1-outputs)+10**(-7)) ) + torch.log(torch.tensor([1+10**(-7)])).to(dtype=torch.long, device=device)  #criterion(outputs, label)
+        loss = lossfunction(outputs, labels)
         # loss = criterion(outputs, labels)# + reg_param*(net.get_beta()-torch.sqrt(1-1/Norm)) #reg_param*(torch.sqrt(1-1/Norm))#
-        loss_plt = torch.sum(loss)/(loss).shape[0]
         # Backward and optimize
-        loss_plt.backward()
-        (norm_2,norm_inf,target_dist) = stats(net,target,lr)
-        
-       
-        A = not(count > 500)
+        loss.backward()
         optimizer.step()
-        stats_data.push('plot_loss',loss_plt.detach().item())
+
+        (norm_2,norm_inf,target_dist) = lib.stats(net,target,lr)
+        
+        stats_data.push('plot_loss',loss.detach().item())
         stats_data.push('plot_norm',norm_inf)
         stats_data.push('plot_norm2',norm_2)
         stats_data.push('plot_dist',target_dist)
     print("The training is done")
 
-def test_stat(net,test_loader,stats_data):
+
+def test_stat(net,test_loader, lossfunc, stats_data, dtype):
     net.to(dtype=dtype,device=device)
 
     ## creating a batch
-    batch_index = list(range(len(test_loader[0])))
+    batch_index = range(len(test_loader[0]))
     batch, labels = [], []
     for elem in batch_index:
         batch.append(test_loader[0][elem])
@@ -129,8 +69,8 @@ def test_stat(net,test_loader,stats_data):
     # Forward pass
     
     outputs = net(batch).squeeze()
-    loss = (-1)*( labels*torch.log(outputs+10**(-7)) + (1-labels)*torch.log((1-outputs)+10**(-7)) ) + torch.log(torch.tensor([1+10**(-7)])).to(dtype=torch.long, device=device)  #criterion(outputs, label)
-    loss[loss<10**(-4)] = 0
+    loss = lossfunc(outputs, labels)
+    loss[loss < 10**(-4)] = 0
     average = torch.count_nonzero(loss)/len(test_loader[0])
 
     stats_data.push('average_loss',average.detach().item())
@@ -161,7 +101,7 @@ for j in range(9):
 
 
         print('Starting the training')
-        model = md.customSRN(hidden_dim = shapes[j][0]*shapes[j][1],input_dim=input_length, output_dim=1,seq_length=seq_leng,device=device,dtyp=32)
+        model = lib.customSRN(hidden_dim = shapes[j][0]*shapes[j][1],input_dim=input_length, output_dim=1,seq_length=seq_leng,device=device,dtyp=32)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.SGD(model.parameters(), # or any optimizer you prefer 
                                 lr= 0.01, # 0.001 is used if no lr is specified
