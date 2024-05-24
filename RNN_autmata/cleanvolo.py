@@ -1,14 +1,13 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from pandas import Series
 from DFA2SRN import dfa2srn
 import RNN_autmata.utils as lib
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(device)
 
-DTYPE = torch.float
+DTYPE = torch.float32
 BATCH_SIZE = 32
 NAMES_PATH = "./names.txt"
 DATA_PATH = "./data/Small/"

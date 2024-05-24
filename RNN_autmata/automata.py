@@ -3,6 +3,7 @@ import string
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
+import torch.nn.utils.parametrize as parametrize
 from warnings import warn
 
 
@@ -425,6 +426,9 @@ class TorchData(Dataset):
 
 
 class AutomataRNN(nn.Module):
+    """
+    Model RNN based on a DFA, tanh version.
+    """
 
     def __init__(self, automaton:DFA, device) -> None:
         super().__init__()
@@ -435,30 +439,143 @@ class AutomataRNN(nn.Module):
 
         self.rnn = nn.RNN(self.transshape[1], self.hidden_size, num_layers=1, batch_first=True, device=device, bias=False)
         self.toclass = nn.Linear(self.hidden_size, 1, device=device, bias=False)
-        self.labels = nn.Sigmoid()
+        self.label = nn.Sigmoid()
 
-    def absinit(self):
-        "Force the sign of the initial parameters to be in the desired shape."
-        parameters = {"rnn.weight_ih_l0" : abs(self.state_dict()["rnn.weight_ih_l0"]),
-                      "rnn.weight_hh_l0" : -abs(self.state_dict()["rnn.weight_hh_l0"]),
-                      "toclass.weight" :  abs(self.state_dict()["toclass.weight"])}
-        
-        self.load_state_dict(parameters)    
+    def set_parameters(self, target:list[torch.Tensor]):
+        """Set the RNN parameters has the target list"""
+        newparam = {"rnn.weight_ih_l0" : target[0],
+                      "rnn.weight_hh_l0" : target[2],
+                      "toclass.weight" :  target[4]}
+        self.load_state_dict(newparam)
 
     def forward(self, x, truelen):
         "`truelen` is a list of the real length of the sequence : that way we can recover the good prediction along the rnn"
-        h0 = torch.zeros(1, x.shape[0], self.hidden_size).to(self.device)
+        h0 = -torch.ones(1, x.shape[0], self.hidden_size).to(self.device)
         h0[:,:,0] = 1
         out, _ = self.rnn(x.to(self.device), h0)
         out = torch.stack([out[i, truelen[i] -1, :] for i in range(out.shape[0])]) #extract only the require prediction y for each batch
-        return self.labels(self.toclass(out))
+        return self.label(self.toclass(out).reshape(-1))
         
     def predict(self, x, truelen):
-        return torch.argmax(self(x, truelen), dim = 1)
+        "Add a round step to forward path to ensure binary classification."
+        return torch.round(self(x, truelen))
     
     def strpredict(self, word:str):
+        "Given a single word, return the prediction by the RNN."
         tensor = torch.tensor(self.automaton.word_to_matrix(word))
         return self.predict(tensor, len(word))
+    
+
+
+class HiddentoHidden(nn.Module):
+    def __init__(self, RNN) -> None:
+        super().__init__()
+        self.transshape = RNN.transshape
+        self.hidden_size = RNN.hidden_size
+
+    def forward(self, X):
+        "X is a square matrix of the size of the hidden vector."
+        cat = [X[:,i].reshape(-1,1).expand(-1, self.transshape[1])  for i in range(0, self.hidden_size, self.transshape[1])]
+        return torch.cat(cat, dim=1)
+        
+
+class ParametrizeRNN(AutomataRNN): #TODO HERE
+    """
+    RNN with parameters with the constraints find by volodimir for automata.
+    """
+    def __init__(self, automaton: DFA) -> None:
+        super().__init__(automaton)
+        statedict = self.state_dict()
+        weight_hh = torch.zeros(*statedict["rnn.weight_hh_l0"].shape)
+        for i in range(0, self.hidden_size, self.transshape[1]):
+            weight_hh[:,i] = statedict["rnn.weight_hh_l0"][:,i]
+            statedict["rnn.weight_ih_l0"][i:i+self.transshape[1]] = 2*torch.eye(self.transshape[1])
+        statedict["rnn.weight_hh_l0"] = weight_hh
+        self.load_state_dict(statedict)
+        self.rnn.all_weights[0][0].requires_grad_(False) # turn off the optimization along weight_ih
+
+        parametrize.register_parametrization(self.rnn, "weight_hh_l0", HiddentoHidden(self))
+
+
+### Saturated calculator
+
+def dfa2srn(trans_mat:np.ndarray, decod_mat:np.ndarray, returnJ:bool = False, verbose:bool = False) -> list[torch.Tensor]:
+    """Given a transitions matrix and a decoder matrix, outputs a saturated (for dtype float32) Simple recurrent network capable of
+    simulating the DFA. 
+    """
+    S,Q = trans_mat.shape
+    if verbose:
+        print(f"trans_mat.shape = ({S},{Q})")
+    J = 128*np.log(2) + 20
+    ### Initalizing the parameters
+
+    # The encoder 
+    U = torch.zeros((S*Q,S))
+    U_b = torch.zeros((S*Q))
+    W = 3*torch.ones((S*Q,S*Q))
+    W_b = torch.zeros((S*Q))
+
+    # The decoder
+    V = torch.zeros((1,S*Q)) # MODIFICATION DONE HERE WARNING
+    V_c = torch.zeros(1)
+
+    ### Constructing the parameters 
+
+    # The encoder
+    for j in range(Q):
+        for k in range(S):
+            U[k+j*S,k] = 2
+    
+    for s in range(Q):
+        for k in range(S):
+            elem = int(trans_mat[k,s])
+            
+            W[k+elem*S,s*S:(s+1)*S] = 1
+
+    # The decoder
+    for k in range(Q):
+        if decod_mat[k] == 1:
+            V[0, k*S:(k+1)*S] = 1
+        else:
+            V[0, k*S:(k+1)*S] = -1
+        
+        # print(V[k*S:(k+1)*S-1])
+
+    ### Packing all the tensors 
+    target = [J*U, U_b, -J*W, W_b, J*V, V_c]
+    #target = [U, U_b, -W, W_b, V, V_c]
+
+    if returnJ:
+        return target, J
+    else:
+        return target
+
+
+def sigmoid_to_tanh_change_basis(lenW:int):
+    changebase = torch.zeros((lenW, lenW))
+    for i in range(lenW):
+        changebase[i,i] = 1 - 1/(lenW - 2)
+        for j in range(i+1, lenW):
+            changebase[i,j] = changebase[j,i] = - 1/(lenW - 2)
+    changebase *= 0.5
+    return changebase
+
+
+def sigmoid_to_tanh(target:list[torch.Tensor]):
+    target = target.copy()
+    lenW = target[2].shape[0]
+    if lenW == 0:
+        raise ValueError("Inconsistant W in `target`.")
+    elif lenW ==2:
+        raise ValueError("Can't use tanh for |states|*|\Sigma| =2.")
+    elif lenW ==1:
+        return target
+    else:
+        changebase = sigmoid_to_tanh_change_basis(lenW)
+
+        target[2] @= changebase
+        target[4] @= changebase
+        return target
 
 
 if __name__ == "__main__":

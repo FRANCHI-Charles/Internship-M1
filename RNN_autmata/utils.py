@@ -217,5 +217,5 @@ def stats(net:nn.Module,target,lr):
         k+=1
     target_dist = target_dist**(0.5)
     norm_2 = lr*norm_2_acc**(0.5)
-    norm_inf = max(norm_inf_acc)
+    norm_inf = max(norm_inf_acc) # *lr ?
     return (norm_2,norm_inf,target_dist)

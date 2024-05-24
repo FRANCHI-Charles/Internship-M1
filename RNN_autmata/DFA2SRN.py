@@ -48,15 +48,14 @@ DATA_PATH = "./data/Small/"
 # print(decod_mat)
 # print(alphabet)
 
-def dfa2srn(trans_mat, decod_mat, returnJ:bool = False, verbose:bool = False):
-    """np.array, np.array -> list(torch.tensors)
-    Given an transitions function and a decoder defined by matrices this functions outputs a saturated Simple recurrent network capable of
+def dfa2srn(trans_mat:np.ndarray, decod_mat:np.ndarray, returnJ:bool = False, verbose:bool = False) -> list[torch.Tensor]:
+    """Given a transitions matrix and a decoder matrix, outputs a saturated (for dtype float32) Simple recurrent network capable of
     simulating the DFA. 
     """
     S,Q = trans_mat.shape
     if verbose:
         print(f"trans_mat.shape = ({S},{Q})")
-    J = 128*np.log(2)
+    J = 128*np.log(2) + 20
     ### Initalizing the parameters
 
     # The encoder 
@@ -66,7 +65,7 @@ def dfa2srn(trans_mat, decod_mat, returnJ:bool = False, verbose:bool = False):
     W_b = torch.zeros((S*Q))
 
     # The decoder
-    V = torch.zeros(S*Q) #  
+    V = torch.zeros((1,S*Q)) # MODIFICATION DONE HERE WARNING
     V_c = torch.zeros(1)
 
     ### Constructing the parameters 
@@ -85,16 +84,15 @@ def dfa2srn(trans_mat, decod_mat, returnJ:bool = False, verbose:bool = False):
     # The decoder
     for k in range(Q):
         if decod_mat[k] == 1:
-            V[k*S:(k+1)*S] = decod_mat[k]
-        
+            V[0, k*S:(k+1)*S] = 1
         else:
-            V[k*S:(k+1)*S] = -1
+            V[0, k*S:(k+1)*S] = -1
         
         # print(V[k*S:(k+1)*S-1])
 
     ### Packing all the tensors 
-    # target = [J*U, U_b, -J*W, W_b, J*V, V_c]
-    target = [U, U_b, -W, W_b, V, V_c]
+    target = [J*U, U_b, -J*W, W_b, J*V, V_c]
+    #target = [U, U_b, -W, W_b, V, V_c]
 
     if returnJ:
         return target, J
@@ -108,6 +106,15 @@ def dfa2srn(trans_mat, decod_mat, returnJ:bool = False, verbose:bool = False):
 
 # print(dfa2srn(T_m, D_m))
 
+def sigmoid_to_tanh_change_basis(lenW:int):
+    changebase = torch.zeros((lenW, lenW))
+    for i in range(lenW):
+        changebase[i,i] = 1 - 1/(lenW - 2)
+        for j in range(i+1, lenW):
+            changebase[i,j] = changebase[j,i] = - 1/(lenW - 2)
+    changebase *= 0.5
+    return changebase
+
 def sigmoid_to_tanh(target:list[torch.Tensor]):
     target = target.copy()
     lenW = target[2].shape[0]
@@ -118,12 +125,7 @@ def sigmoid_to_tanh(target:list[torch.Tensor]):
     elif lenW ==1:
         return target
     else:
-        changebase = torch.zeros((lenW, lenW))
-        for i in range(lenW):
-            changebase[i,i] = 1 - 1/(lenW - 2)
-            for j in range(i+1, lenW):
-                changebase[i,j] = changebase[j,i] = - 1/(lenW - 2)
-        changebase *= 0.5
+        changebase = sigmoid_to_tanh_change_basis(lenW)
 
         target[2] @= changebase
         target[4] @= changebase
