@@ -467,8 +467,9 @@ class AutomataRNN(nn.Module):
     
 
 
-class HiddentoHidden(nn.Module):
-    def __init__(self, RNN) -> None:
+class HiddenEqualColumns(nn.Module):
+    def __init__(self, RNN:AutomataRNN) -> None:
+        "function = 'tanh' or 'sigmoid'."
         super().__init__()
         self.transshape = RNN.transshape
         self.hidden_size = RNN.hidden_size
@@ -477,24 +478,38 @@ class HiddentoHidden(nn.Module):
         "X is a square matrix of the size of the hidden vector."
         cat = [X[:,i].reshape(-1,1).expand(-1, self.transshape[1])  for i in range(0, self.hidden_size, self.transshape[1])]
         return torch.cat(cat, dim=1)
-        
 
-class ParametrizeRNN(AutomataRNN): #TODO HERE
+
+class InputIdentityShape(nn.Module):
+    def __init__(self, RNN:AutomataRNN):
+        super().__init__()
+        self.matrix = torch.zeros(RNN.hidden_size, RNN.transshape[1])
+        for i in range(0, RNN.hidden_size, RNN.transshape[1]):
+            self.matrix[i:i+RNN.transshape[1]] = torch.eye(RNN.transshape[1], requires_grad=False)
+
+    def forward(self, X):
+        "X has to be the weight_ih matrix of a RNN."
+        return X[0,0] * self.matrix
+
+class ParametrizeRNN(AutomataRNN):
     """
-    RNN with parameters with the constraints find by volodimir for automata.
+    RNN with parameters contrained to has a shape similar of what found Volodimir MITARCHUK for automata.
     """
-    def __init__(self, automaton: DFA) -> None:
-        super().__init__(automaton)
+    def __init__(self, automaton: DFA, device) -> None:
+        super().__init__(automaton, device)
         statedict = self.state_dict()
-        weight_hh = torch.zeros(*statedict["rnn.weight_hh_l0"].shape)
+        weight_ih = torch.zeros(self.hidden_size, self.transshape[1])
+        weight_ih[0,0] = statedict["rnn.weight_ih_l0"][0,0]
+        statedict["rnn.weight_ih_l0"] = weight_ih
+        weight_hh = torch.zeros(self.hidden_size, self.hidden_size)# *statedict["rnn.weight_hh_l0"].shape)
         for i in range(0, self.hidden_size, self.transshape[1]):
             weight_hh[:,i] = statedict["rnn.weight_hh_l0"][:,i]
-            statedict["rnn.weight_ih_l0"][i:i+self.transshape[1]] = 2*torch.eye(self.transshape[1])
-        statedict["rnn.weight_hh_l0"] = weight_hh
+        statedict["rnn.weight_hh_l0"] = weight_hh #put the unused part of the hh matrix to 0
         self.load_state_dict(statedict)
-        self.rnn.all_weights[0][0].requires_grad_(False) # turn off the optimization along weight_ih
+        # self.rnn.all_weights[0][0].requires_grad_(False) # turn off the optimization along weight_ih
 
-        parametrize.register_parametrization(self.rnn, "weight_hh_l0", HiddentoHidden(self))
+        parametrize.register_parametrization(self.rnn, "weight_hh_l0", HiddenEqualColumns(self))
+        parametrize.register_parametrization(self.rnn, "weight_ih_l0", InputIdentityShape(self))
 
 
 ### Saturated calculator
