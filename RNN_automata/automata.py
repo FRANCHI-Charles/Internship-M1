@@ -512,6 +512,16 @@ class ParametrizeRNN(AutomataRNN):
         parametrize.register_parametrization(self.rnn, "weight_ih_l0", InputIdentityShape(self))
 
 
+class Binary_nthRoot_Loss(nn.Module):
+    "Loss on binary classes 0,1 using nth root augmentation."
+    def __init__(self, nth:int=2) -> None:
+        super().__init__()
+        self.power = 1/nth
+    
+    def forward(self, predictions, labels):
+        return torch.mean((1 - labels) * (predictions ** self.power) + labels * ((1 - predictions) **self.power), dim=0)
+
+
 ### Saturated calculator
 
 def dfa2srn(trans_mat:np.ndarray, decod_mat:np.ndarray, returnJ:bool = False, verbose:bool = False) -> list[torch.Tensor]:

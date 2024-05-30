@@ -1,9 +1,13 @@
 import torch
 import torch.nn as nn
-import numpy as np
 from torch.utils.data import Dataset
+import numpy as np
+import matplotlib.pyplot as plt
 from DFA2SRN import machine_process
 from automata import DFA, TorchData
+
+
+STATS_NAMES = ["l2", "linf", "targetdist", "linedist", "losses", "acc"]
 
 
 def lang_names(file_path):
@@ -14,7 +18,7 @@ def lang_names(file_path):
         readnames = True
         for line in file.readlines():
             if readnames:
-                if line != '/n':
+                if line != '\n':
                     names.append(line[:-1])
                 else:
                     readnames = False
@@ -56,7 +60,7 @@ def alphabet_extractor(data) -> str:
 def att_to_DFA(file_path, alphabet):
     "Load .att files as a dict of DFA class."
     transitions, finites = machine_process(file_path)
-    output = DFA(transitions.T, finites, letters=alphabet)
+    output = DFA(transitions.T, finites, probas="equal", letters=alphabet)
 
     return output
 
@@ -113,24 +117,46 @@ def initstats(names:list[str]):
     for name in names:
         dico[name] = list()
     return dico
+
+def linedist(point, linepoint):
+    """Compute the distance between the `point` and the line form by the 2 points `linepoint` and 0."""
+    return torch.sqrt(torch.abs(torch.linalg.vector_norm(point)**2 - (torch.sum(point * linepoint) / torch.linalg.vector_norm(linepoint))**2)).item()
     
 
 def stats(net:nn.Module,target,lr):
     "Returns the L2 and the L_\infty norm of the gradient and the distance to target."
     norm_2_acc = 0
     norm_inf_acc = []
-    target_dist = 0
-    k=0
+    flatten_target = torch.cat([target[0].flatten(), target[2].flatten(), target[4].flatten()])
+    flatten_param = torch.zeros(flatten_target.shape)
+    last_position = 0
     for parameters in net.parameters():
-        gr = parameters.grad
-        parameters = parameters.detach() 
-        target_dist += ((torch.linalg.norm(parameters.flatten()-target[k].flatten())).item())**2
-        parameters -= lr*(gr) # lr*(target[k]) + (1-lr)*(initial[k])
-        parameters.requires_grad = True
-        norm_2_acc += (torch.linalg.norm(gr.flatten(),ord=2).item())**2
-        norm_inf_acc.append(torch.linalg.norm(gr.flatten(),ord=float('inf')).item())
-        k+=1
-    target_dist = target_dist**(0.5)
-    norm_2 = lr*norm_2_acc**(0.5)
-    norm_inf = max(norm_inf_acc) # *lr ?
-    return (norm_2,norm_inf,target_dist)
+        gr = parameters.grad.flatten()
+        norm_2_acc += (torch.linalg.norm(gr,ord=2).item())**2
+        norm_inf_acc.append(torch.linalg.norm(gr,ord=float('inf')).item())
+        with torch.no_grad():
+            parameters = parameters.flatten()
+            flatten_param[last_position : last_position + torch.numel(parameters)] = parameters
+            last_position += torch.numel(parameters)
+        disttoline = linedist(flatten_param, flatten_target)
+        target_dist = torch.linalg.vector_norm(flatten_target - flatten_param).item()
+        norm_2 = lr*norm_2_acc**(0.5)
+        norm_inf = max(norm_inf_acc) * lr
+        return norm_2, norm_inf, disttoline, target_dist
+    
+
+def plot_stats(*stats:tuple[dict], plotaspects = ["r", "g", "b"], labels=["Non-Parametrized", "Parametrized"]):
+    "Plot the stats L2, Linf, distance to target, distance to line target, losses and accuracy."
+    _, axes = plt.subplots(2,3, figsize = (12,6))
+
+    if len(stats) > len(plotaspects):
+        raise ValueError("Not enough plotaspects.")
+    
+
+    for i, name in enumerate(STATS_NAMES):
+        for statsdict, layout, label in zip(stats, plotaspects, labels):
+            axes[i%2,i//2].plot(statsdict[name], layout, label=label)
+        axes[i%2,i//2].set_title(name)
+        axes[i%2,i//2].legend()
+
+    plt.show()
