@@ -145,7 +145,7 @@ def stats(net:nn.Module,target,lr):
         return norm_2, norm_inf, disttoline, target_dist
     
 
-def plot_stats(*stats:tuple[dict], plotaspects = ["r", "g", "b"], labels=["Non-Parametrized", "Parametrized"]):
+def plot_stats(*stats:tuple[dict], plotaspects = ["r", "g", "b"], labels=["Unconstrained SRN", "Constrained SRN"]):
     "Plot the stats L2, Linf, distance to target, distance to line target, losses and accuracy."
     _, axes = plt.subplots(2,3, figsize = (12,6))
 
