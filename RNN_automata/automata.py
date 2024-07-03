@@ -448,6 +448,15 @@ class AutomataRNN(nn.Module):
                       "toclass.weight" :  target[4]}
         self.load_state_dict(newparam)
 
+    def high_init(self, J=40):
+        statedict = self.state_dict()
+        idmatrix = torch.zeros(self.hidden_size, self.transshape[1])
+        for i in range(0, self.hidden_size, self.transshape[1]):
+            idmatrix[i:i+self.transshape[1]] = torch.eye(self.transshape[1], requires_grad=False)
+        statedict["rnn.weight_ih_l0"] = J * idmatrix
+        statedict["rnn.weight_hh_l0"] = -J * torch.ones((self.hidden_size,self.hidden_size))
+        self.load_state_dict(statedict)
+
     def forward(self, x, truelen):
         "`truelen` is a list of the real length of the sequence : that way we can recover the good prediction along the rnn"
         h0 = -torch.ones(1, x.shape[0], self.hidden_size).to(self.device)
@@ -467,7 +476,7 @@ class AutomataRNN(nn.Module):
     
 
 
-class HiddenEqualColumns(nn.Module):
+class EqualColumns(nn.Module):
     def __init__(self, RNN:AutomataRNN) -> None:
         "function = 'tanh' or 'sigmoid'."
         super().__init__()
@@ -502,14 +511,25 @@ class ParametrizeRNN(AutomataRNN):
         weight_ih[0,0] = statedict["rnn.weight_ih_l0"][0,0]
         statedict["rnn.weight_ih_l0"] = weight_ih
         weight_hh = torch.zeros(self.hidden_size, self.hidden_size)# *statedict["rnn.weight_hh_l0"].shape)
+        weight_oh = torch.zeros(1, self.hidden_size)
         for i in range(0, self.hidden_size, self.transshape[1]):
             weight_hh[:,i] = statedict["rnn.weight_hh_l0"][:,i]
+            weight_oh[:,i] = statedict["toclass.weight"][:,i]
         statedict["rnn.weight_hh_l0"] = weight_hh #put the unused part of the hh matrix to 0
+        statedict["toclass.weight"] = weight_oh #put the unused part of the oh matrix to 0
         self.load_state_dict(statedict)
         # self.rnn.all_weights[0][0].requires_grad_(False) # turn off the optimization along weight_ih
 
-        parametrize.register_parametrization(self.rnn, "weight_hh_l0", HiddenEqualColumns(self))
+        parametrize.register_parametrization(self.rnn, "weight_hh_l0", EqualColumns(self))
+        parametrize.register_parametrization(self.toclass, "weight", EqualColumns(self))
         parametrize.register_parametrization(self.rnn, "weight_ih_l0", InputIdentityShape(self))
+
+    def high_init(self, J=40):
+        statedict = self.state_dict()
+        statedict["rnn.parametrizations.weight_ih_l0.original"][0,0] = J
+        for i in range(0, self.hidden_size, self.transshape[1]):
+            statedict["rnn.parametrizations.weight_hh_l0.original"][:,i] = -J
+        self.load_state_dict(statedict)
 
 
 class Binary_nthRoot_Loss(nn.Module):
